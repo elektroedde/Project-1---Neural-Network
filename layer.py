@@ -9,7 +9,7 @@ def f_sigmoid_der(x):
 
 # Relu
 def f_relu(x):
-    return np.maximun(x)
+    return np.maximum(0, x)
 
 def f_relu_der(x):
     return (x > 0).astype(float)
@@ -40,30 +40,45 @@ class Layer():
             self.activation_derivative = f_relu_der
         elif activation == "gelu":
             self.activation = f_gelu
-            self.activation = f_gelu_der
+            self.activation_derivative = f_gelu_der
         elif activation == "tanh":
             self.activation = f_tanh
             self.activation_derivative = f_tanh_der
         else:
             print(f"Activation function {activation} not supported.")
             return
+        
+        self.in_size = in_nodes
+        self.out_size = out_nodes
 
-        self.w = np.random.randn(in_nodes, out_nodes)
-        self.b = np.zeros((1, out_nodes))
+        self.w = np.random.randn(out_nodes, in_nodes)
+        self.b = np.ones((out_nodes, 1))
 
         self.z = None
         self.a = None
+        self.input_activations = None
 
         self.activation_name = activation
     
     def forward(self, x):
-        self.z = x @ self.w + self.b
+        self.input_activations = x
+        self.z = np.matmul(self.w, x) + self.b
         self.a = self.activation(self.z)
         return self.a
 
-    def backward(self, delta, previous_a):
-        dz = delta * self.activation(self.z)
-        dw = previous_a @ dz / previous_a.shape[0]
-        db = np.mean(dz, axis=0, keepdims=True)
-        n_delta = dz @ self.w.T
-        return dw, db, n_delta
+    def backward(self, delta, learning_rate=None):
+        n_delta = np.dot(self.w.T, delta) * self.activation_derivative(self.z)
+
+        grad_w = np.dot(delta, self.input_activations.T)
+        grad_b = n_delta
+
+        
+        print(grad_w.shape)
+        print(self.b.shape)
+        print(grad_b.shape)
+
+        if learning_rate is not None:
+            self.w += -learning_rate * grad_w
+            self.b += -learning_rate * grad_b
+
+        return n_delta, grad_w, grad_b
