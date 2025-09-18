@@ -1,6 +1,9 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from layer import Layer
 from losses import f_mse, f_mse_der, f_mse2, f_mse2_der
+
+# Do NOT use
 
 class newFNN():
     def __init__(self, in_nodes=None, loss = "mse2"):
@@ -16,94 +19,107 @@ class newFNN():
         if in_nodes == None:
             print(f"You must initialize the FNN with a number of nodes.")
             return
+        
+        self.output_size = in_nodes
 
         self.layers = []
 
     def create_layer(self, out_nodes, activation="sigmoid"):
-        if not self.layers:
-            in_nodes = self.input_size
-        else:
-            in_nodes = self.layers[-1].W.shape[0]  
-
+        in_nodes = self.output_size
+        self.output_size = out_nodes
         self.layers.append(Layer(in_nodes, out_nodes, activation))
 
     def forward_propagation(self, data):
         a = data
-        values = [data]
-
         for layer in self.layers:
             a = layer.forward(a)
-            values.append(a)
-        return a, values
+        return a
     
-    def backward_propagation(self, data, real_data):
-        prediction_data, activations = self.forward_propagation()
-        delta = self.loss_derivative(real_data, prediction_data)
-        grads_w = []
-        grads_b = []
+    def backward_propagation(self, X, y, learning_rate):
+        # === Forward ===
+        output = self.forward_propagation(X)
 
-        for i in reversed(range(len(self.layers))):
-            present_layer = self.layers[i]
-            previous_a = activations[i]
+        grads_w = [None] * len(self.layers)
+        grads_b = [None] * len(self.layers)
 
-            dw, db, delta = present_layer.backward(delta, previous_a)
-            # Note: With insert, gradient list can be builded from the end to start
-            grads_w.insert(0, dw)
-            grads_b.insert(0, db)
+        delta = (output - y) * self.layers[-1].activation_derivative(self.layers[-1].z)
+        grads_w[-1] = np.dot(delta, self.layers[-1].input_activations.T)
+        grads_b[-1] = np.sum(delta, axis=1, keepdims=True)
+
+        # === Backward ===
+        for l in reversed(range(len(self.layers) - 1)):
+
+            delta, grad_w, grad_b = self.layers[l].backward(delta, learning_rate)
+            grads_w[l] = grad_w
+            grads_b[l] = grad_b
 
         return grads_w, grads_b
     
+    def update_params(self, grads_w, grads_b, lr=0.01):
+        for i, layer in enumerate(self.layers):
+            layer.w -= lr * grads_w[i]
+            layer.b -= lr * grads_b[i]
+
     # Taken from the last update, thanks
-    def train_SGD(self, training_data, training_labels, batch_size, epochs, learning_rate = 0.01):
-        # Take training data, mini-batch size, and number of epochs to train over
-        # Epochs are complete passes over the data.
-        # Also use a learning rate to scale the gradient shift
-        # Randomize training data and labels, keeping indices matching
-        # There should be roughly size(training_data)/mini-batch size batches per epoch
-        # Number of whole batches, there likely be some left over for a final partial batch
-        whole_batch_num = training_data.shape[0] // batch_size
+    def train_SGD(self, training_data, training_labels, batch_size, epochs, learning_rate,
+                  test_data=None, test_labels=None):
 
-        # Repeat for each epoch
+        n = training_data.shape[1]
+
         for epoch in range(epochs):
-            rand_inds = np.arange(training_data.shape[0])
-            np.random.shuffle(rand_inds)
-            training_data = training_data[rand_inds]
-            training_labels = training_labels[rand_inds]
+            # Shuffle
+            perm = np.random.permutation(n)
+            print("Data shape:", training_data.shape)
+            print("Labels shape:", training_labels.shape)
 
-            epoch_loss = 0
-            # For each batch, there will be N whole batches and a final partial batch
-            for b in range(whole_batch_num + 1):
-                # Batches of data and labels
-                # If we aren't on that final partial batch, create a full batch
-                # of the desired size
-                if b != whole_batch_num:
-                    training_subset = training_data[b*batch_size:(b+1)*batch_size]
-                    label_subset = training_labels[b*batch_size:(b+1)*batch_size]
-                # Else, we are on the final partial batch, so just take the remaining samples
-                else:
-                    training_subset = training_data[b*batch_size:]
-                    label_subset = training_labels[b*batch_size:]
-                # To avoid an empty batch
-                if training_subset.shape[0] == 0:
-                    continue
+            training_data = training_data.T 
+            training_labels = training_labels.T
+            training_data = training_data[:, perm]
+            training_labels = training_labels[:, perm]
 
-                # Forward propagation
-                prediction, _ = self.forward_propagation(training_subset)
-                batch_loss = self.loss(label_subset, prediction)
+            # Mini-batches
+            for k in range(0, n, batch_size):
+                X_batch = training_data[:, k:k+batch_size]
+                y_batch = training_labels[:, k:k+batch_size]
 
-                epoch_loss += batch_loss
+                grads_w, grads_b = self.backward_propagation(X_batch, y_batch, learning_rate)
 
-                # Backward propagation
-                grads_w, grads_b = self.backward_propagation(training_subset, label_subset)
+            print(f"Epoch {epoch+1}/{epochs}")
+        self.plot_accuracy(epochs, batch_size, learning_rate)
 
-                for layer, dw, db in zip(self.layers, grads_w, grads_b):
-                    layer.w -= learning_rate * dw
-                    layer.b -= learning_rate * db
+    def plot_accuracy(self, epochs, batch_size, learning_rate):
+        #x: epochs
+        #y: accuracy of predictions per epoch
+        x = np.arange(1, len(self.accuracy) + 1)
+        plt.plot(x, self.accuracy, marker="o")
 
-                print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss:.4f}")
-
-
-
-
-
+        plt.title(f"epochs: {epochs}, batch size: {batch_size}, learning rate: {learning_rate}")
         
+        #Plot y between 0 and 100%
+        plt.ylim(0, 101)
+        plt.yticks(range(0, 101, 10))
+        
+        #x ticks at each epoch
+        plt.xticks(x)
+
+        # grid
+        plt.grid(axis="y", linestyle="--", alpha=0.7)
+        plt.xlabel("Epoch")
+        plt.ylabel("Accuracy (%)")
+        
+        plt.show()
+    
+    def vector_to_label(self, vec):
+        return int(np.argmax(vec))
+    
+    def evaluate(self, test_data, test_labels, verbose=False):
+        outputs = np.array([self.forward_propagation(sample) for sample in test_data])
+        int_outputs = np.array([self.vector_to_label(vec) for vec in outputs])
+        
+        if verbose:
+            correct_bools = int_outputs == test_labels
+            total_correct = np.sum(correct_bools)
+            self.accuracy.append(total_correct*100/len(correct_bools))
+            print(f"Performance on test data: {total_correct}/{len(correct_bools)}, {total_correct*100/len(correct_bools):.2f}% acc")
+        
+        return outputs
