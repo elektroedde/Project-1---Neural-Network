@@ -12,8 +12,8 @@ network = FNN([784,16, 10])
 
 # Training parameters
 batch_size = 10
-epochs = 1
-learning_rate = 2.5
+epochs = 5
+learning_rate = 3
 # Train the model
 network.train_SGD(train_images, train_labels, batch_size, epochs, learning_rate, test_images, test_labels)
 print(train_images[0].shape)
@@ -23,37 +23,67 @@ _outputs = network.evaluate(test_images, test_labels, verbose=True)
 
 
 #Attack on the network by modifying the input data slightly
-#Inputs the first image in test_data to the network
-data_index = 1
-x = test_images[data_index].reshape(784,1)
-y = np.zeros((10,1))     
-y[test_labels[data_index]] = 1
-orig_pred = np.argmax(network.forward(x))
+success = 0
+amount = 10000
 
-#Gets the gradient at the input layer
-grad_input = network.input_gradient(x, y)
+attack_images = np.zeros((amount, 784))
+# Evaluate (amount) of attack images
+for i in range(amount):
+    data_index = i
+    x = test_images[data_index].reshape(784, 1)
+    y = np.zeros((10,1))
+    y[test_labels[data_index]] = 1
 
-#Modifying the image to fool the network
-epsilon = 0.05
-x_atk = x + epsilon * np.sign(grad_input)
-atk_pred = np.argmax(network.forward(x_atk))
+    original_prediction = np.argmax(network.forward(x))
 
-# Use attack data to train the network
-attack_image = [x_atk]
-attack_label = [test_labels[data_index]]
-#Needs more work
-#network.train_SGD(attack_image, attack_label, 1, 1, 1, test_images, test_labels)
+    grad_input = network.input_gradient(x,y)
+    epsilon = 0.3
+    x_attack = x + epsilon * np.sign(grad_input)
+    attack_prediction = np.argmax(network.forward(x_attack))
+    if attack_prediction != original_prediction:
+        success += 1
 
-#Plot results
-plt.figure(figsize=(10,6))
-plt.title(f"epochs: {epochs}, batch size: {batch_size}, learning rate: {learning_rate}, epsilon: {epsilon}")
-plt.subplot(1,2,1)
-plt.title(f"Original\nPrediction: {orig_pred}, Correct: {test_labels[data_index]}")
-plt.imshow(x.reshape(28,28), cmap='gray')
-plt.axis('off')
-plt.subplot(1,2,2)
-plt.title(f"Attack\nPrediction: {atk_pred}, Correct: {test_labels[data_index]}")
-plt.imshow(x_atk.reshape(28,28), cmap='gray')
-plt.axis('off')
+    attack_images[i] = x_attack.flatten()
+print(f"Attack success rate: {100*success/amount}%")
 
-plt.show()
+attack_labels = test_labels[:amount]
+
+#Train the network on the attack data
+epochs = 15
+learning_rate = 2
+network.train_SGD(attack_images, attack_labels, batch_size, epochs, learning_rate)
+
+#Perform the attack again, with the network trained on the attack data.
+success = 0
+amount = 10000
+
+for i in range(amount):
+    data_index = i
+    x = test_images[data_index].reshape(784, 1)
+    y = np.zeros((10,1))
+    y[test_labels[data_index]] = 1
+
+    original_prediction = np.argmax(network.forward(x))
+
+    grad_input = network.input_gradient(x,y)
+    epsilon = 0.3
+    x_attack = x + epsilon * np.sign(grad_input)
+    attack_prediction = np.argmax(network.forward(x_attack))
+    if attack_prediction != original_prediction:
+        success += 1
+
+print(f"Attack success rate: {100*success/amount}%")
+
+##Plot results
+#plt.figure(figsize=(10,6))
+#plt.title(f"epochs: {epochs}, batch size: {batch_size}, learning rate: {learning_rate}, epsilon: {epsilon}")
+#plt.subplot(1,2,1)
+#plt.title(f"Original\nPrediction: {orig_pred}, Correct: {test_labels[data_index]}")
+#plt.imshow(x.reshape(28,28), cmap='gray')
+#plt.axis('off')
+#plt.subplot(1,2,2)
+#plt.title(f"Attack\nPrediction: {atk_pred}, Correct: {test_labels[data_index]}")
+#plt.imshow(x_atk.reshape(28,28), cmap='gray')
+#plt.axis('off')
+#
+#plt.show()
